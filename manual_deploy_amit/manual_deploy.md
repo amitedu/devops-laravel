@@ -121,16 +121,166 @@ Search EC2 in AWS console and click 'Launch Instance'
   ### 1. Create Deployment User 
   We already did that in the previous step.
 
-    - sudo adduser deploy
-    - sudo usermod -aG sudo deploy
-    - sudo su - deploy
-    - ssh-keygen -f /home/deploy/.ssh/github_key -t ed25519 -C "[EMAIL_ADDRESS]"
-    - chmod 600 ~/.ssh/github_key
-    - chmod 700 ~/.ssh
-    - cat ~/.ssh/github_key.pub
-    - ssh -T git@[IP_ADDRESS]
+    sudo adduser deploy
+    usermod -aG sudo deploy
+    su - deploy
+    ssh-keygen -f /home/deploy/.ssh/github_key -t ed25519 -C "[EMAIL_ADDRESS]"
+    chmod 600 ~/.ssh/github_key
+    chmod 700 ~/.ssh
+    cat ~/.ssh/github_key.pub
+    ssh -T git@[IP_ADDRESS]
     
   ### 2. Git Clone
+  - change the user to deploy user(here laravel_demo) from ubuntu
+    
+        sudo su - laravel_demo
+    
+  - Copy the github ssh public key to the github.com
+  
+        cat ~/.ssh/github_key.pub (copy the public key)
+    
+  - Paste this public key into your GitHub repository's Deploy Keys section under settings.
+  - put a title for this key(e.g. app_name)
+  - Don't allow write access. only read access is enough.
+  - Clone the repo the code directory
+
+          git clone <repo_url> code
+          cd code
+
   ### 3. Install Laravel & NPM Dependencies
+  - Install the php packages
+  
+        composer install --prefer-dist --no-dev
+
+  - Create .env file based on the env.example
+
+        cp .env.example .env
+        
+  - Or if you have a .env file stored elsewhere, copy it to the current directory.
+  
+        cp <path-to-.env-file>/<filename>.env code/.env
+        
+  - Check the .env if anything needs to be changed
+  
+  - Generate APP_KEY
+  
+        php artisan key:generate
+        
+  - If you use sqlite database create the file
+  
+        touch database/database.sqlite
+  - Run the migration
+  
+        php artisan migrate
+  - Now install the front-end dependencies
+  
+        npm install
+  - Run the build
+  
+        npm run build      
+        
   ### 4. Configure Nginx
+  Now prepare the nginx config file for our application. I usually remove the default nginx symlink file if exists. And you need to do it from root user as the default config file is owned by root user. You can check the owner of the file using ls -l /etc/nginx/sites-enabled/. For the content of conf file check the test.conf file.
+    
+    sudo rm /etc/nginx/sites-enabled/default
+    sudo nano /etc/nginx/sites-available/app_name.conf
+    sudo ln -s /etc/nginx/sites-available/app_name.conf /etc/nginx/sites-enabled/
+    sudo nginx -t
+    sudo service nginx reload
+        
   ### 5. Fix Permissions
+  Context: We want to serve multiple website from one server.
+  If it shows File not found in above step or something similar, then first check the nginx error.log file for more information.
+
+    sudo cat /var/log/nginx/error.log or sudo nano /var/log/nginx/error.log
+
+If it says permission issue on the public directory or files. We are gonna add a new group(laravel_demo here) to the www-data.
+
+    sudo usermod -aG laravel_demo www-data
+
+Now if look the error again, it should fix the permission issue. After that if there is showing fastcgi error then check the php-fpm config file and check the user. If it is www-data then add the deploy user(here it is laravel_demo) and the www-data same group. If we serve only one website then you can change the owner of the file to the deploy user. But we are planning to serve multiple website from one server so we are not going to change the owner of the file. We will just add the deploy user and the www-data in the same group. For the php-fpm config file location check this - sudo nano /etc/php/8.3/fpm/pool.d/www.conf. Change these places - 
+
+    [laravel_demo]          # Pool name (was [www] at line no 4) — good ✅
+    user = laravel_demo     # PHP-FPM worker runs as this user ✅
+    group = laravel_demo    # PHP-FPM worker runs as this group ✅
+    listen.owner = laravel_demo   # Socket file owned by this user ✅
+    listen.group = laravel_demo   # Socket file group ✅
+
+  Restart the php-fpm.
+
+    sudo systemctl restart php8.3-fpm
+    sudo service nginx reload
+
+  ## 4. Deploy Workers
+  Install Redis server
+
+    sudo apt install redis-server -y
+    
+  Install supervisor
+
+    sudo apt install supervisor -y
+    
+  Create a conf file for supervisor. We need to create a conf file for supervisor to run the queue workers. 
+    
+    sudo nano /etc/supervisor/conf.d/laravel_demo_horizon.conf
+
+  Here is the file content:
+
+    [program:laravel_demo_horizon]
+    process_name=%(program_name)s_%(process_num)d
+    command=php /home/laravel_demo/code/artisan horizon
+    user=laravel_demo
+    numprocs=1
+    autostart=true
+    autorestart=true
+    redirect_stderr=true
+    stdout_logfile=/home/laravel_demo/code/horizon/logs/horizon.log
+    stderr_logfile=/home/laravel_demo/code/horizon/logs/horizon.err
+    stopwaitsecs=3600
+      
+  Restart the supervisor after config changes
+
+    sudo service supervisor restart
+
+  Check the horizon process
+
+    sudo service supervisor status
+    
+Change .env to use redis as cache and queue driver.
+
+    SESSION_DRIVER=redis
+    CACHE_DRIVER=redis
+    QUEUE_CONNECTION=redis
+    CACHE_STORE=redis
+  
+These are redis port
+
+    REDIS_HOST=127.0.0.1
+    REDIS_PASSWORD=null
+    REDIS_PORT=6379
+    REDIS_CLIENT=phpredis
+
+## 5. Deploy Schedulers
+
+### 1. To check if there is any cron entries for the current user use - 
+
+    crontab -l
+    
+### 2. Configure Cron
+To create or edit the cron use - 
+
+    crontab -e
+
+If there is no entry then add the following entry - 
+
+    * * * * * cd /home/laravel_demo/code && php artisan schedule:run >> /home/laravel_demo/code/storage/logs/cron.log 2>&1
+
+### 3. Verify working it in horizon
+Check the /horizon if it is working correctly.
+
+### 4. Verify log file
+
+    nano /home/laravel_demo/code/storage/logs/cron.log
+
+### 5. To remove or disable the cron
+To remove you can delete the line or put a # sign before the line for temporary disabling it.
