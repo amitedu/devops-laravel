@@ -284,3 +284,167 @@ Check the /horizon if it is working correctly.
 
 ### 5. To remove or disable the cron
 To remove you can delete the line or put a # sign before the line for temporary disabling it.
+
+## 6. Migrate from SQLite to MySQL
+
+### 1. Install MySQL Server
+
+    sudo apt install mysql-server -y
+    
+### 2. Create a MySQL database and user
+
+    sudo mysql
+
+    ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY 'secret';
+    FLUSH PRIVILEGES;
+    EXIT;
+
+  Then immediately verify it works:
+
+    mysql -u root -p
+
+  If that login succeeds, then run
+
+    mysql_secure_installation
+
+  follow the steps:
+  1. Change the root password - yes(if you want to change). then enter the new password, confirm it again and press enter.
+  2. Remove anonymous users? -> yes
+  3. Disallow root login remotely? -> yes
+  4. Remove test database and access to it? -> yes
+  5. Reload privilege tables now? -> yes
+
+If you need to create/update a user, here's the SQL:
+
+    CREATE USER 'laravel_demo'@'localhost' IDENTIFIED BY 'devops#Demo18';
+
+Grant all the privileges to the user
+
+    GRANT ALL PRIVILEGES ON laravel_demo.* TO 'laravel_demo'@'localhost';
+    FLUSH PRIVILEGES;
+    EXIT;
+
+Update the .env file with the new database credentials:
+
+    DB_CONNECTION=mysql
+    DB_HOST=[IP_ADDRESS]
+    DB_PORT=3306
+    DB_DATABASE=laravel_demo
+    DB_USERNAME=laravel_demo
+    DB_PASSWORD=[PASSWORD]  # If the password contains '#' or special characters then wrap the password in double quotes
+
+Clear the cache and run the migration
+
+    php artisan config:clear
+    php artisan cache:clear
+    php artisan route:clear
+    php artisan view:clear
+    php artisan optimize:clear
+
+Run the migration
+
+    php artisan migrate
+
+Check the url for the application. It should work now. You can register a new user.
+Now check the database using MySQL client. You can access it using laravel_demo user as we created in step 2. If you have ubuntu user access then you can use it also.
+
+    sudo mysql -u laravel_demo -p
+
+Now we need to give access to laravel_demo user to access the database from their local machine. First we need to create ssh key for the laravel_demo user. We can do it using the following command - 
+
+    ssh-keygen -t ed25519 -C "deployments and ssh access" -f ~/Desktop/laravel_dmeo/key
+
+Then copy the public key 
+
+    cat ~/Desktop/laravel_dmeo/key.pub
+
+Copy the contains of the file and paste it to the authorized_keys file for the laravel_demo user. 
+
+    nano ~/.ssh/authorized_keys
+
+Now open another terminal (your local machine) and try to login as laravel_demo user. It should not ask for the password.
+
+    ssh -i ~/Desktop/laravel_demo/key laravel_demo@<server-ip>
+
+After login try to login to mysql database using the laravel_demo user.
+
+    mysql -u laravel_demo -p  
+
+Now you can configure local mysql client to access the remote database. Use the following details:
+
+    DB_HOST=127.0.0.1
+    DB_PORT=3306
+    DB_DATABASE=laravel_demo
+    DB_USERNAME=laravel_demo
+    DB_PASSWORD=[PASSWORD]
+
+    SSH HOST=[IP_ADDRESS]
+    SSH USER=laravel_demo
+    SSH PORT=22
+    SSH KEY=~/Desktop/laravel_dmeo/key  
+
+Connect the Database and check.
+
+## 7. Setup Domain name and TLS/SSL
+
+I have bought a domain from godaddy.
+Select Route53 and choose "Create hosted zone". Enter the domain name and click on "Create hosted zone". Now copy the NS records under "Hosted zone details" and paste it to godaddy domains -> DNS Management -> Nameservers -> Change to custom nameservers
+
+Now go to Route53 -> Hosted zone -> <domain-name> -> "Create record"
+
+Give a record name e.g. laraveldemo(note without underscore symbol)
+Record Type - CNAME
+value - copy Public IPv4 DNS name of the ec2 server and paste it here. Because we don't have fixed ip address for the ec2 instance so in the mean we will use DNS name instead of IP address.
+click on Create Record
+Check the status
+
+Now go to the browser and type the subdomain.domain(e.g. laraveldemo.dudameweb.com). It should open the laravel application. Remember it will only be http. It may take hours before the changes propagate through the DNS system.
+
+### Make it secure with TLS/SSL
+Login to ec2 instance and run the following command - 
+
+    sudo apt install certbot python3-certbot-nginx -y
+
+Now go to nginx configration file - 
+
+    sudo nano /etc/nginx/sites-available/laravel-demo.conf
+
+
+Replace the underscore in the server_name with laraveldemo.amitdass.website
+
+anytime we change the nginx config, we should check the syntax of the config file using the following command -
+
+    sudo nginx -t
+    
+Then reload the nginx service to apply the changes
+
+    sudo systemctl reload nginx
+    
+As cert will change the config file, we should backup the file first.
+
+    sudo cp /etc/nginx/sites-available/laravel-demo.conf /etc/nginx/sites-available/laravel-demo.conf.bak
+
+Now run the certbot command to get the certificate.
+
+    sudo certbot --nginx
+
+Follow the instruction and provide the required details. For example, 
+  - provide email address, 
+  - agree to the terms of service, 
+  - select no for sharing email address, 
+  - choose names of the server that you want to secure, e.g., laraveldemo.amitdass.website
+  - put 1 and enter
+
+Now it will create a redirect from HTTP to HTTPS and will enable the auto renewal of the certificate.
+
+    sudo systemctl status certbot.timer
+
+Dry run for testing purposes
+
+    sudo certbot renew --dry-run
+
+
+
+---
+
+This is the end.
