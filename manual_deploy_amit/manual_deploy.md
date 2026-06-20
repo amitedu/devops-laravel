@@ -444,7 +444,44 @@ Dry run for testing purposes
     sudo certbot renew --dry-run
 
 
+## 8. Clean Up / Delete All Resources
 
----
+Follow this order to avoid dependency errors when deleting.
+
+### Step 1 — Terminate EC2 Instance
+- Go to **EC2 → Instances**
+- Select your instance → **Instance State → Terminate Instance**
+- Wait until status shows **"terminated"** before proceeding
+
+> The root EBS volume (8GB) is automatically deleted when the instance is terminated.
+
+### Step 2 — Delete Route 53 Hosted Zone
+> ⚠️ Costs **$0.50/month** even when idle — always delete after practice.
+
+- Go to **Route 53 → Hosted Zones** → click your hosted zone
+- Select all records **except NS and SOA** → Delete them
+- Go back to the hosted zone list → Select the zone → **Delete**
+
+### Step 3 — Delete the VPC
+- Go to **VPC → Your VPCs**
+- Select the project VPC (not the Default VPC — leave that one)
+- Click **Actions → Delete VPC**
+- AWS will auto-delete associated resources (subnets, route tables, internet gateway, security group)
+
+### Step 4 — Delete the Key Pair (Optional)
+- Go to **EC2 → Key Pairs** → Select your key → **Actions → Delete**
+- Also delete the `.pem` file from your local machine
+
+### Step 5 — Final Verification Checklist
+- [ ] EC2 → Instances: terminated or empty
+- [ ] EC2 → Volumes: no volumes in "available" state
+- [ ] EC2 → Elastic IPs: none allocated
+- [ ] Route 53 → Hosted Zones: deleted
+- [ ] VPC → Your VPCs: only the Default VPC remains (Default: Yes)
+- [ ] Billing → Bills: confirm no unexpected active charges
+
+> **Note:** The unnamed VPC in your list is likely the AWS **Default VPC** (Default: Yes).
+> It is created automatically by AWS in every region and costs nothing. Do **not** delete it.
+
 
 This is the end.
