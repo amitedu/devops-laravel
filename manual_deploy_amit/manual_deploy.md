@@ -34,18 +34,18 @@ Step 2: Create EC2 Instance
 Search EC2 in AWS console and click 'Launch Instance'
 - Give a name tag, e.g. my-laravel-app
 - Select Ubuntu
-- Keep the default for Free tier.
+- Keep the default for Free tier. Choose t3.small for this tutorial if it is in free tier.
 - Create a key pair and save it in your host machine. It will help you to access the instance later. Change the .pem file permission: chmod 0600 /path/to/key.pem. This is means we are the only one read and write to it. Otherwise it may show Unprotected Private Key File error.
-- Select the VPC we just create
+- Edit -> Network settings
+- Select the VPC we just create in VPC - required
 - Select subnets as per availability zone in which you want to deploy. Select public1 for example
 - Auto assign public IP- ENABLE
 - Create security group if not exists as app_name_sg(eg. prod_app_name_sg)
-  - Inbound rules:
-    - SSH		Port 22	Allow all IP addresses
-    - HTTP		Port 80	Allow all IP addresses
-    - HTTPS		Port 443	Allow all IP addresses
-
 - Change the Description name first part as well(before created)
+- Inbound rules:
+    - SSH		Port 22	Source Type - Anywhere(Allow all IP addresses)
+    - HTTP		Port 80	Source Type - Anywhere(Allow all IP addresses)
+    - HTTPS		Port 443	Source Type - Anywhere(Allow all IP addresses)
 - Storage: if you want keep 8GB
 - Look at the summary in the right section.
 - Launch instance
@@ -53,87 +53,115 @@ Search EC2 in AWS console and click 'Launch Instance'
 - Keep refreshing until it shows 'running' not 'pending'
 
 ## 2. Prepare Ubuntu Instances
-1. Copy the IPv4 address of the instance. It will be in the format like [13.60.8.190]. Every time you shutdown or restart the instance, the public IP will change. So it's better to use a elastic IP for production.
+1. Copy the IPv4 address of the instance. It will be in the format like [13.60.8.190]. Every time you shutdown or restart the instance, the public IP will change. So it's better to use a elastic IP for production. But elastic IP is not free. In this tutorial, we are using the public IP.
 2. SSH into the instance: ssh -i /path/to/key.pem ubuntu@[IP_ADDRESS]
   - If it is a new IP then it will ask to continue? then type 'yes'.
   - If the .pem file permission is not set properly, then it will show Unprotected Private Key File error.
 
 3. Update and install necessary packages
-    - sudo apt update
-    - sudo apt upgrade -y
-    - sudo apt install -y curl git zip unzip
+     
+        sudo apt update &&
+        sudo apt upgrade -y &&
+        sudo apt install -y curl git zip unzip
   - If the update wants to reboot the instance, then reboot it in the AWS UI or via SSH. I would prefer SSH.
   - Once done, check again "sudo apt update" to make sure it is up to date.
-4. Install nginx,php
-  - sudo apt install nginx -y
-  - sudo add-apt-repository ppa:ondrej/php -y
-  - sudo apt update -y
-  - sudo apt install -y php8.3-cli php8.3-fpm php8.3-mysql php8.3-curl php8.3-gd php8.3-mbstring php8.3-xml php8.3-zip php8.3-redis php8.3-bcmath php8.3-sqlite3 
-  
-5. Install Composer
-  - curl -sS https://getcomposer.org/installer | php
-  - sudo mv composer.phar /usr/local/bin/composer
-  - composer -v
- 
-6. Install NPM and Node.js(Particular version)
-   ```
-   curl -fsSL https://deb.nodesource.com/setup_21.x | sudo -E bash - 
-   ```
-   ```
-   sudo apt install -y nodejs
-   ```
-   - npm -v
+4. Install nginx
+      
+       sudo apt install nginx -y
 
-7. You wanna create a deployment user for our application. Imagine if this instance is big enough to deploy multiple applications then you can create a deployment user for each application. And you can use it as non-root user.
-  - sudo adduser <your_username> (give a password when prompted, can be anything)
-  - Exit from the root user (if you are in root user)
-  - SSH into the instance using the new user: ssh -i /path/to/key.pem <your_username>@[IP_ADDRESS]
-    - It will prompt to continue? type 'yes'
-    - If the .pem file permission is not set properly, then it will show Unprotected Private Key File error.
-    - Once done, check again "ssh -i /path/to/key.pem <your_username>@[IP_ADDRESS]" to make sure it is up to date.
-  - sudo usermod -aG sudo <your_username> (if you need root access)
-  - sudo su - <your_username> (Switch to the deployment user. If you did not add Sudo access to this user then you will not be able to switch to it. In that case, you will be using root user for all the deployment steps from here)
+5. Install php
+      
+       sudo add-apt-repository ppa:ondrej/php -y
+       
+    Update
+       
+       sudo apt update -y
+
+    Install php and php packages
+       
+       sudo apt install -y php8.3-cli php8.3-fpm php8.3-mysql php8.3-curl php8.3-gd php8.3-mbstring php8.3-xml php8.3-zip php8.3-redis php8.3-bcmath php8.3-sqlite3 php8.3-opcache
+  
+6. Install Composer
+  
+        curl -sS https://getcomposer.org/installer | php
+    
+    Make composer global executable
+    
+        sudo mv composer.phar /usr/local/bin/composer
+    
+    Check composer
+
+        composer --version
+ 
+7. Install NPM and Node.js(Particular version)
+   
+        curl -fsSL https://deb.nodesource.com/setup_21.x | sudo -E bash - 
+
+    Install nodejs
+
+        sudo apt install -y nodejs
+    
+    Check npm
+
+        npm --version
+
+8. To secure your environment we wanna create a deployment user for our application. Imagine if this instance is big enough to deploy multiple applications then you can create a deployment user for each application. And you can use it as non-root user.
+
+  - Create a new user and give a password when prompted. It is for the new deployment user. If you want you can leave blank other options by pressing Enter key.
+
+        sudo adduser <new_username> 
+    
+  - sudo usermod -aG sudo <new_username> (if you need root access)
+  - sudo su - <new_username> (Switch to the deployment user. If you did not add Sudo access to this user then you will not be able to switch to it. In that case, you will be using root user for all the deployment steps from here)
   - cd ~/ (It will take you to the home directory of the deployment user)
   - To interact with github.com or gitlab.com, we need to generate ssh keys.
-    - Generate ssh key for <your_username>:
-      ```
-      ssh-keygen -f /home/deploy/.ssh/github_key -t ed25519 -C "<your_email>"
-      ```
+    - Generate ssh key for <new_username>:
+      
+          ssh-keygen -f /home/<new_username>/.ssh/github_key -t ed25519 -C "<your_email>"
+      
       - It will ask for a passphrase. Press Enter to skip it.
-      - add a config file to ssh directory for github.com or gitlab.com, if you are using github.com then config file should be:
+    
+    - add a config file to ssh directory for github.com or gitlab.com.
+
+            nano ~/.ssh/config
+      
+    - If you are using github.com then config file should be:
       ```
       Host github.com
-          IdentityFile ~/.ssh/github_rsa
+          IdentityFile ~/.ssh/github_key
           IdentitiesOnly yes 
       ```
-      - change the file and folder permission
-      ```
-      chmod 600 ~/.ssh/github_key
-      chmod 700 ~/.ssh
-      ```
-      - ssh-add ~/.ssh/github_key
-      - cat ~/.ssh/github_key.pub (copy the public key)
-    - Go to github.com or gitlab.com and add the public key to your account.
-    - Test the ssh connection:
-      - ssh -T git@[IP_ADDRESS]
+    - Change the file and folder permission
+
+            chmod 600 ~/.ssh/github_key
+            chmod 600 ~/.ssh/config
+            chmod 700 ~/.ssh
+
+    - Copy the public key and paste it in the deploy key section of your repo. It will allow you to pull the code from the repo. Put the title like app_name or project_name.
+
+            cat ~/.ssh/github_key.pub
+
+    - Go to github.com or gitlab.com and add the public key to your account. And then test the ssh connection:
+      
+          ssh -T git@github.com
 
 ## 3. Deploy Web
   ### 1. Create Deployment User 
   We already did that in the previous step.
 
-    sudo adduser deploy
-    usermod -aG sudo deploy
-    su - deploy
-    ssh-keygen -f /home/deploy/.ssh/github_key -t ed25519 -C "[EMAIL_ADDRESS]"
+    sudo adduser <user_name>
+    usermod -aG sudo <user_name>
+    su - <user_name>
+    ssh-keygen -f /home/<user_name>/.ssh/github_key -t ed25519 -C "<your_email>"
     chmod 600 ~/.ssh/github_key
     chmod 700 ~/.ssh
     cat ~/.ssh/github_key.pub
-    ssh -T git@[IP_ADDRESS]
+    ssh -T git@github.com
     
   ### 2. Git Clone
   - change the user to deploy user(here laravel_demo) from ubuntu
     
-        sudo su - laravel_demo
+        sudo su - <user_name>
     
   - Copy the github ssh public key to the github.com
   
@@ -161,7 +189,11 @@ Search EC2 in AWS console and click 'Launch Instance'
         cp <path-to-.env-file>/<filename>.env code/.env
         
   - Check the .env if anything needs to be changed
+
+  - Check composer.json for a script to run the command which will generate key and migrate. e.g. here is a script 
   
+        composer run post-create-project-cmd
+        
   - Generate APP_KEY
   
         php artisan key:generate
@@ -183,22 +215,76 @@ Search EC2 in AWS console and click 'Launch Instance'
   Now prepare the nginx config file for our application. I usually remove the default nginx symlink file if exists. And you need to do it from root user as the default config file is owned by root user. You can check the owner of the file using ls -l /etc/nginx/sites-enabled/. For the content of conf file check the test.conf file.
     
     sudo rm /etc/nginx/sites-enabled/default
+
+  Create Nginx config file for our app.
+
     sudo nano /etc/nginx/sites-available/app_name.conf
+
+  Sample config file.
+```
+  server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+
+    # Using '_' as server_name matches any request, allowing access via your IP address
+    server_name _;
+
+    # Root directory pointing to your Laravel project's public folder
+    # Replace 'your-project-folder' with the actual folder name of your cloned git repository
+    root /home/laravel_demo/code/public;
+
+    index index.php index.html;
+
+    charset utf-8;
+
+    # Laravel's route handler
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+
+    # PHP-FPM configuration using PHP 8.3
+    location ~ \.php$ {
+        fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+        fastcgi_hide_header X-Powered-By;
+    }
+
+    # Deny access to hidden files (like .env or .git)
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}
+
+```
+Create a symlink from /etc/nginx/sites-available/ to /etc/nginx/sites-enabled/. This will enable your site configuration.
+
     sudo ln -s /etc/nginx/sites-available/app_name.conf /etc/nginx/sites-enabled/
+
+  Test your nginx configuration
+  
     sudo nginx -t
+    
+  Reload nginx to apply the changes
+  
     sudo service nginx reload
         
   ### 5. Fix Permissions
   Context: We want to serve multiple website from one server.
   If it shows File not found in above step or something similar, then first check the nginx error.log file for more information.
 
-    sudo cat /var/log/nginx/error.log or sudo nano /var/log/nginx/error.log
+    sudo cat /var/log/nginx/error.log
 
 If it says permission issue on the public directory or files. We are gonna add a new group(laravel_demo here) to the www-data.
 
-    sudo usermod -aG laravel_demo www-data
+    sudo usermod -a -G laravel_demo www-data
 
-Now if look the error again, it should fix the permission issue. After that if there is showing fastcgi error then check the php-fpm config file and check the user. If it is www-data then add the deploy user(here it is laravel_demo) and the www-data same group. If we serve only one website then you can change the owner of the file to the deploy user. But we are planning to serve multiple website from one server so we are not going to change the owner of the file. We will just add the deploy user and the www-data in the same group. For the php-fpm config file location check this - sudo nano /etc/php/8.3/fpm/pool.d/www.conf. Change these places - 
+Now if look the error again, it should fix the permission issue. After that if there is showing fastcgi error then check the php-fpm config file and check the user. If it is www-data then add the deploy user(here it is laravel_demo) and the www-data same group. If we serve only one website then you can change the owner of the file to the deploy user. But we are planning to serve multiple website from one server so we are not going to change the owner of the file. We will just add the deploy user and the www-data in the same group. For the php-fpm config file location check this.
+
+    sudo nano /etc/php/8.3/fpm/pool.d/www.conf
+
+change these places
 
     [laravel_demo]          # Pool name (was [www] at line no 4) — good ✅
     user = laravel_demo     # PHP-FPM worker runs as this user ✅
@@ -215,6 +301,10 @@ Now if look the error again, it should fix the permission issue. After that if t
   Install Redis server
 
     sudo apt install redis-server -y
+
+  To check the status. If it throws error then install the redis extension.
+
+    php -r "new Redis();"    
     
   Install supervisor
 
@@ -260,6 +350,11 @@ These are redis port
     REDIS_PORT=6379
     REDIS_CLIENT=phpredis
 
+After editing, clear Laravel's config cache:
+
+    php artisan config:clear
+    
+
 ## 5. Deploy Schedulers
 
 ### 1. To check if there is any cron entries for the current user use - 
@@ -293,7 +388,11 @@ To remove you can delete the line or put a # sign before the line for temporary 
     
 ### 2. Create a MySQL database and user
 
+  Login in to mysql:
+
     sudo mysql
+
+  Run the following commands:
 
     ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY 'secret';
     FLUSH PRIVILEGES;
@@ -303,9 +402,9 @@ To remove you can delete the line or put a # sign before the line for temporary 
 
     mysql -u root -p
 
-  If that login succeeds, then run
+  If that login succeeds, **exit MySQL first** (`exit;`), then run this from the shell (not inside MySQL):
 
-    mysql_secure_installation
+    sudo mysql_secure_installation
 
   follow the steps:
   1. Change the root password - yes(if you want to change). then enter the new password, confirm it again and press enter.
@@ -339,6 +438,7 @@ Clear the cache and run the migration
     php artisan cache:clear
     php artisan route:clear
     php artisan view:clear
+    
     php artisan optimize:clear
 
 Run the migration
@@ -361,6 +461,10 @@ Then copy the public key
 Copy the contains of the file and paste it to the authorized_keys file for the laravel_demo user. 
 
     nano ~/.ssh/authorized_keys
+
+Change the permission of the file 
+
+    chmod 600 ~/.ssh/authorized_keys
 
 Now open another terminal (your local machine) and try to login as laravel_demo user. It should not ask for the password.
 
@@ -388,15 +492,17 @@ Connect the Database and check.
 ## 7. Setup Domain name and TLS/SSL
 
 I have bought a domain from godaddy.
-Select Route53 and choose "Create hosted zone". Enter the domain name and click on "Create hosted zone". Now copy the NS records under "Hosted zone details" and paste it to godaddy domains -> DNS Management -> Nameservers -> Change to custom nameservers
+- Select Route53 and choose "Create hosted zone". 
+- Enter the domain name and click on "Create hosted zone". 
+- Now copy the NS records under "Hosted zone details" and paste it to godaddy domains -> DNS Management -> Nameservers -> Change to custom nameservers
 
-Now go to Route53 -> Hosted zone -> <domain-name> -> "Create record"
+- Now go to Route53 -> Hosted zone -> <domain-name> -> "Create record"
 
-Give a record name e.g. laraveldemo(note without underscore symbol)
-Record Type - CNAME
-value - copy Public IPv4 DNS name of the ec2 server and paste it here. Because we don't have fixed ip address for the ec2 instance so in the mean we will use DNS name instead of IP address.
-click on Create Record
-Check the status
+- Give a record name e.g. www or app or laraveldemo
+- Record Type - CNAME
+- value - copy Public IPv4 DNS name of the ec2 server and paste it here. Because we don't have fixed ip address for the ec2 instance so in the mean we will use DNS name instead of IP address.
+- click on Create Record
+- Check the status
 
 Now go to the browser and type the subdomain.domain(e.g. laraveldemo.dudameweb.com). It should open the laravel application. Remember it will only be http. It may take hours before the changes propagate through the DNS system.
 
