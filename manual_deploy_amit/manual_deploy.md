@@ -58,6 +58,8 @@ Search EC2 in AWS console and click 'Launch Instance'
   - If it is a new IP then it will ask to continue? then type 'yes'.
   - If the .pem file permission is not set properly, then it will show Unprotected Private Key File error.
 
+        chmod 0600 /path/to/key.pem
+
 3. Update and install necessary packages
      
         sudo apt update &&
@@ -111,9 +113,13 @@ Search EC2 in AWS console and click 'Launch Instance'
 
         sudo adduser <new_username> 
     
-  - sudo usermod -aG sudo <new_username> (if you need root access)
+  - sudo usermod -aG sudo <new_username> (if you need root access but avoid for deployment user)
   - sudo su - <new_username> (Switch to the deployment user. If you did not add Sudo access to this user then you will not be able to switch to it. In that case, you will be using root user for all the deployment steps from here)
-  - cd ~/ (It will take you to the home directory of the deployment user)
+
+  - It will take you to the home directory of the deployment user
+
+        cd
+  
   - To interact with github.com or gitlab.com, we need to generate ssh keys.
     - Generate ssh key for <new_username>:
       
@@ -137,14 +143,6 @@ Search EC2 in AWS console and click 'Launch Instance'
             chmod 600 ~/.ssh/config
             chmod 700 ~/.ssh
 
-    - Copy the public key and paste it in the deploy key section of your repo. It will allow you to pull the code from the repo. Put the title like app_name or project_name.
-
-            cat ~/.ssh/github_key.pub
-
-    - Go to github.com or gitlab.com and add the public key to your account. And then test the ssh connection:
-      
-          ssh -T git@github.com
-
 ## 3. Deploy Web
   ### 1. Create Deployment User 
   We already did that in the previous step.
@@ -165,14 +163,21 @@ Search EC2 in AWS console and click 'Launch Instance'
     
   - Copy the github ssh public key to the github.com
   
-        cat ~/.ssh/github_key.pub (copy the public key)
+        cat ~/.ssh/github_key.pub
     
   - Paste this public key into your GitHub repository's Deploy Keys section under settings.
   - put a title for this key(e.g. app_name)
   - Don't allow write access. only read access is enough.
+  - Go to github.com or gitlab.com and add the public key to your account. And then test the ssh connection:
+      
+          ssh -T git@github.com
+
   - Clone the repo the code directory
 
           git clone <repo_url> code
+
+  - Go to the code directory
+
           cd code
 
   ### 3. Install Laravel & NPM Dependencies
@@ -280,6 +285,10 @@ If it says permission issue on the public directory or files. We are gonna add a
 
     sudo usermod -a -G laravel_demo www-data
 
+Restart the nginx
+
+    sudo service nginx reload
+
 Now if look the error again, it should fix the permission issue. After that if there is showing fastcgi error then check the php-fpm config file and check the user. If it is www-data then add the deploy user(here it is laravel_demo) and the www-data same group. If we serve only one website then you can change the owner of the file to the deploy user. But we are planning to serve multiple website from one server so we are not going to change the owner of the file. We will just add the deploy user and the www-data in the same group. For the php-fpm config file location check this.
 
     sudo nano /etc/php/8.3/fpm/pool.d/www.conf
@@ -328,6 +337,16 @@ change these places
     stderr_logfile=/home/laravel_demo/code/horizon/logs/horizon.err
     stopwaitsecs=3600
       
+  Create the log directory if it does not exist. run from <new-user>
+
+    mkdir -p /home/laravel_demo/code/horizon/logs
+
+  Or from ubuntu user
+
+    sudo mkdir -p /home/laravel_demo/code/horizon/logs
+
+    sudo chown laravel_demo:laravel_demo /home/laravel_demo/code/horizon/logs
+
   Restart the supervisor after config changes
 
     sudo service supervisor restart
@@ -357,7 +376,7 @@ After editing, clear Laravel's config cache:
 
 ## 5. Deploy Schedulers
 
-### 1. To check if there is any cron entries for the current user use - 
+### 1. To check if there is any cron entries for the <u>CURRENT USER</u> use - 
 
     crontab -l
     
