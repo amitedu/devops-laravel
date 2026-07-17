@@ -27,7 +27,7 @@ sudo apt upgrade -y
 # Install Some Basic Packages....TODO: FILTER THROUGH THESE
 title "Install Basic Packages"
 sudo apt-get install -y software-properties-common curl gnupg debian-keyring debian-archive-keyring apt-transport-https \
-ca-certificates build-essential dos2unix gcc git git-lfs libmcrypt4 libpcre3-dev libpng-dev chrony make pv \
+ca-certificates build-essential dos2unix gcc git git-lfs libpcre3-dev libpng-dev chrony make pv \
 python3-pip re2c supervisor unattended-upgrades whois vim cifs-utils bash-completion zsh zip unzip expect
 
 # Create Swap Space
@@ -169,7 +169,7 @@ case $installs_mailhog in
 esac
 
 title "Install ngrok"
-case $installs_mailhog in
+case $installs_ngrok in
   [yY][eE][sS]|[yY])
   source ./installers/ngrok.sh
   status "ngrok installed";;
