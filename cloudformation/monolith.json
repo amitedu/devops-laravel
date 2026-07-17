@@ -43,7 +43,7 @@
         "VpcId": {
           "Ref": "VPC"
         },
-        "AvailabilityZoneId": "use1-az4",
+        "AvailabilityZoneId": "eun1-az1",
         "CidrBlock": "10.1.0.0/20",
         "MapPublicIpOnLaunch": true,
         "Tags": [
@@ -60,7 +60,7 @@
         "VpcId": {
           "Ref": "VPC"
         },
-        "AvailabilityZoneId": "use1-az4",
+        "AvailabilityZoneId": "eun1-az1",
         "CidrBlock": "10.1.128.0/20",
         "MapPublicIpOnLaunch": false,
         "Tags": [
@@ -77,7 +77,7 @@
         "VpcId": {
           "Ref": "VPC"
         },
-        "AvailabilityZoneId": "use1-az6",
+        "AvailabilityZoneId": "eun1-az2",
         "CidrBlock": "10.1.16.0/20",
         "MapPublicIpOnLaunch": true,
         "Tags": [
@@ -94,7 +94,7 @@
         "VpcId": {
           "Ref": "VPC"
         },
-        "AvailabilityZoneId": "use1-az6",
+        "AvailabilityZoneId": "eun1-az2",
         "CidrBlock": "10.1.144.0/20",
         "MapPublicIpOnLaunch": false,
         "Tags": [
@@ -239,8 +239,8 @@
     "EC2Instance": {
       "Type": "AWS::EC2::Instance",
       "Properties": {
-        "ImageId": "ami-080e1f13689e07408",
-        "InstanceType": "t2.micro",
+        "ImageId": "ami-05bfa4a7765f38076",
+        "InstanceType": "t3.small",
         "KeyName": "laravel_demo",
         "SubnetId": {
           "Ref": "PublicSubnet1"
@@ -262,9 +262,9 @@
               "",
               [
                 "#!/bin/bash -ex\n",
-                "git clone https://github.com/rcravens/devops-laravel.git /usr/local/bin/devops\n",
+                "git clone https://github.com/amitedu/devops-laravel.git /usr/local/bin/devops\n",
                 "/usr/local/bin/devops/common/create_aliases.sh\n",
-                "source ~/.bashrc\n",
+                "source ~/.bashrc\n"
               ]
             ]
           }

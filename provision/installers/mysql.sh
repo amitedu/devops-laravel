@@ -4,7 +4,7 @@
 sudo apt-get install -y mysql-server
 
 # Set the root password
-sudo mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$installs_database_root_password';"
+sudo mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY '$installs_database_root_password';"
 
 # Automate the mysql_secure_installation process
 SECURE_MYSQL=$(expect -c "
