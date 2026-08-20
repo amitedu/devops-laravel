@@ -263,8 +263,8 @@
               [
                 "#!/bin/bash -ex\n",
                 "git clone https://github.com/amitedu/devops-laravel.git /usr/local/bin/devops\n",
-                "/usr/local/bin/devops/common/create_aliases.sh\n",
-                "source ~/.bashrc\n"
+                "sudo -u ubuntu /usr/local/bin/devops/common/create_aliases.sh\n",
+                "sudo -u ubuntu bash -c 'source /home/ubuntu/.bashrc'\n"
               ]
             ]
           }

@@ -4,13 +4,13 @@
 my_path=$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd -P )
 if [ $# -eq 0 ]; then
   echo "No app specified!"
-  existing_apps=$(ls $my_path/../apps/ | sed -e 's|\.[^.]*$||')
+  existing_apps=$(ls $my_path/../apps/ 2>/dev/null | grep '\.sh$' | grep -v '^_app\.sh$' | sed -e 's|\.[^.]*$||')
   echo "Try one of these applications:"
   echo "$existing_apps"
   exit 1
 fi
 
-# Application to create is argument #1
+# Application to delete is argument #1
 app_name="$1"
 
 # Save current directory and cd into script path
@@ -28,69 +28,73 @@ status "User: $app_name"
 status "MySQL User: $app_name"
 status "MySQL Database: $app_name"
 status "Nginx Configuration: /etc/nginx/sites-available/$app_name.conf"
-status "PHP FPM Pool: /etc/php/$php_version/fpm/pool.d/$app_name.conf"
-status "Supervisor Conf: /etc/supervisor/conf.d/$app_name.conf"
+status "PHP FPM Pool: /etc/php/$installs_php_version/fpm/pool.d/$app_name.conf"
+status "Supervisor Confs: /etc/supervisor/conf.d/$app_name.conf & ${app_name}_pulse.conf"
 status "App Config: $root_path/apps/$app_name.sh"
-read -p "Are you sure you continue? " response
-echo    # (optional) move to a new line
-if [[ $response =~ ^[Yy]$ ]]
+read -p "Are you sure you want to continue? [y/N] " response
+echo
+
+if [[ $response =~ ^[Yy]([Ee][Ss])?$ ]]
 then
 
-  title "Nginx Configuration: /etc/nginx/sites-available/$app_name.conf"
+  # 1. Stop and Delete Supervisor Configurations (Horizon & Pulse)
+  title "Supervisor Configurations"
+  sudo supervisorctl stop horizon_$username:* pulse_$username:* 2>/dev/null
+  if [ -f /etc/supervisor/conf.d/$username.conf ]; then
+    sudo rm -f /etc/supervisor/conf.d/$username.conf
+    status "Deleted: /etc/supervisor/conf.d/$username.conf"
+  fi
+  if [ -f /etc/supervisor/conf.d/${username}_pulse.conf ]; then
+    sudo rm -f /etc/supervisor/conf.d/${username}_pulse.conf
+    status "Deleted: /etc/supervisor/conf.d/${username}_pulse.conf"
+  fi
+  sudo supervisorctl reread 2>/dev/null
+  sudo supervisorctl update 2>/dev/null
+  status "Supervisor updated"
+
+  # 2. Nginx Configuration
+  title "Nginx Configuration"
   restart_nginx=0
-  if [ -f /etc/nginx/sites-enabled/$username.conf ]; then
-    sudo rm /etc/nginx/sites-enabled/$username.conf
+  if [ -f /etc/nginx/sites-enabled/$username.conf ] || [ -L /etc/nginx/sites-enabled/$username.conf ]; then
+    sudo rm -f /etc/nginx/sites-enabled/$username.conf
     status "Deleted: /etc/nginx/sites-enabled/$username.conf"
     restart_nginx=1
   else
-    status "Does not exists: /etc/nginx/sites-enabled/$username.conf"
+    status "Does not exist: /etc/nginx/sites-enabled/$username.conf"
   fi
   if [ -f /etc/nginx/sites-available/$app_name.conf ]; then
-    sudo rm /etc/nginx/sites-available/$app_name.conf
+    sudo rm -f /etc/nginx/sites-available/$app_name.conf
     status "Deleted: /etc/nginx/sites-available/$app_name.conf"
     restart_nginx=1
   else
-    status "Does not exists: /etc/nginx/sites-available/$app_name.conf"
+    status "Does not exist: /etc/nginx/sites-available/$app_name.conf"
   fi
   if [ $restart_nginx -eq 1 ]; then
-    sudo service nginx reload
-    status "Nginx reloaded"
+    sudo service nginx restart
+    status "Nginx restarted"
   fi
 
-
-  title "PHP FPM Pool: /etc/php/$php_version/fpm/pool.d/$app_name.conf"
-  if [ -f /etc/php/$php_version/fpm/pool.d/$app_name.conf ]; then
-    sudo rm /etc/php/$php_version/fpm/pool.d/$app_name.conf
-    status "Deleted: /etc/php/$php_version/fpm/pool.d/$app"
-    sudo service php$php_version-fpm restart
-    status "PHP FPM reloaded"
+  # 3. PHP-FPM Pool
+  title "PHP FPM Pool"
+  if [ -f /etc/php/$installs_php_version/fpm/pool.d/$app_name.conf ]; then
+    sudo rm -f /etc/php/$installs_php_version/fpm/pool.d/$app_name.conf
+    status "Deleted: /etc/php/$installs_php_version/fpm/pool.d/$app_name.conf"
+    sudo service php$installs_php_version-fpm restart
+    status "PHP FPM restarted"
   else
-    status "Does not exists: /etc/php/$php_version/fpm/pool.d/$app_name.conf"
+    status "Does not exist: /etc/php/$installs_php_version/fpm/pool.d/$app_name.conf"
   fi
 
-
-  title "Supervisor Conf: /etc/supervisor/conf.d/$username.conf"
-  if [ -f /etc/supervisor/conf.d/$username.conf ]; then
-    sudo rm /etc/supervisor/conf.d/$username.conf
-    status "Deleted: /etc/supervisor/conf.d/$username.conf"
-    sudo supervisorctl reread
-    sudo supervisorctl update
-    status "Supervisor reloaded"
-  else
-    status "Does not exists: /etc/supervisor/conf.d/$username.conf"
-  fi
-
-
+  # 4. Application Cron
   title "Deleting Application Cron"
-  cron_expression="* * * * * cd $deploy_directory/current/ && php artisan schedule:run >> $deploy_directory/current/storage/logs/cron.log 2>&1"
-  if [ $(sudo -u $username crontab -l | wc -c) -eq 0 ]; then
-    status "Crontab does not exist"
-  else
+  if sudo -u $app_name crontab -l >/dev/null 2>&1; then
     sudo -u $app_name crontab -r
     status "Crontab deleted"
+  else
+    status "Crontab does not exist"
   fi
 
-
+  # 5. Remove www-data from group
   title "Removing www-data from $app_name group"
   if getent group $app_name | grep -qw "www-data"; then
     sudo deluser www-data $app_name
@@ -99,35 +103,40 @@ then
     status "www-data not part of the group"
   fi
 
-  title "Dropping $app_name user and $app_name database from MySQL"
-  mysql -u root -p$db_root_password <<SQL
+  # 6. Drop MySQL Database and User
+  title "Dropping MySQL Database and User"
+  mysql -u root -p$installs_database_root_password <<SQL
 DROP DATABASE IF EXISTS $app_name;
 DROP USER IF EXISTS '$username'@'localhost';
 FLUSH PRIVILEGES;
 SQL
-  status "Dropped $app_name user and $app_name database from MySQL"
+  status "Dropped $app_name user and database from MySQL"
 
-  title "Deleting User and All Files user=$app_name"
+  # 7. Delete User and All Files
+  title "Deleting User and All Files: $app_name"
   if id "$username" >/dev/null 2>&1; then
     sudo deluser $app_name --remove-all-files
     status "User $app_name has been deleted."
   else
     status "User $app_name does not exist."
   fi
-  if [[ -d /home/$app_name ]]; then
+  if [ -d /home/$app_name ]; then
     sudo rm -rf /home/$app_name
     status "Deleted: /home/$app_name"
-  else
-    status "Does not exists: /home/$app_name"
   fi
 
+  # 8. Delete Application Config File
   title "Deleting Application Config: $root_path/apps/$app_name.sh"
   if [ -f $root_path/apps/$app_name.sh ]; then
-    sudo rm $root_path/apps/$app_name.sh
+    sudo rm -f $root_path/apps/$app_name.sh
     status "Deleted: $root_path/apps/$app_name.sh"
   else
-    status "Does not exists: $root_path/apps/$app_name.sh"
+    status "Does not exist: $root_path/apps/$app_name.sh"
   fi
+
+else
+  echo "Deletion cancelled."
+  exit 0
 fi
 
 # Return back to the original directory

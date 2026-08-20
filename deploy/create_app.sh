@@ -182,14 +182,15 @@ fi
 
 # Create supervisor conf
 title "Creating Supervisor Conf"
+sudo systemctl enable supervisor >/dev/null 2>&1
+sudo systemctl start supervisor >/dev/null 2>&1 || sudo service supervisor start >/dev/null 2>&1
+
 if [ ! -f /etc/supervisor/conf.d/$username.conf ]; then
     sudo cp $root_path/deploy/_supervisor.conf /etc/supervisor/conf.d/$username.conf
     sudo sed -i "s|program:|program:horizon_$username|" /etc/supervisor/conf.d/$username.conf
     sudo sed -i "s|command=|command=php $deploy_directory/current/artisan horizon|" /etc/supervisor/conf.d/$username.conf
     sudo sed -i "s|user=|user=$username|" /etc/supervisor/conf.d/$username.conf
     sudo sed -i "s|stdout_logfile=|stdout_logfile=$deploy_directory/current/storage/logs/horizon.log|" /etc/supervisor/conf.d/$username.conf
-    sudo supervisorctl reread
-    sudo supervisorctl update
     status "Created: /etc/supervisor/conf.d/$username.conf"
 else
   status "Already exists: /etc/supervisor/conf.d/$username.conf"
@@ -201,12 +202,13 @@ if [ ! -f "$pulse_conf_file" ]; then
     sudo sed -i "s|command=|command=php $deploy_directory/current/artisan pulse:check|" "$pulse_conf_file"
     sudo sed -i "s|user=|user=$username|" "$pulse_conf_file"
     sudo sed -i "s|stdout_logfile=|stdout_logfile=$deploy_directory/current/storage/logs/pulse.log|" "$pulse_conf_file"
-    sudo supervisorctl reread
-    sudo supervisorctl update
     status "Created: $pulse_conf_file"
 else
   status "Already exists: $pulse_conf_file"
 fi
+
+sudo supervisorctl reread
+sudo supervisorctl update
 
 # Return back to the original directory
 cd $initial_working_directory || exit

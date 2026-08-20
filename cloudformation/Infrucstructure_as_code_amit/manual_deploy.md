@@ -1,0 +1,406 @@
+# Deployment Steps
+## 1. Provision Infrastructure in AWS
+## 2. Prepare Ubuntu Instances
+## 3. Deploy Web
+## 4. Deploy Workers
+## 5. Deploy Schedulers
+## 6. Migrate from SQLite to MySql
+## 7. Setup Domain name and TLS/SSL
+
+***
+
+
+### 4. Configure Nginx
+  Now prepare the nginx config file for our application. I usually remove the default nginx symlink file if exists. And you need to do it from root user as the default config file is owned by root user. You can check the owner of the file using ls -l /etc/nginx/sites-enabled/. For the content of conf file check the test.conf file.
+    
+    sudo rm /etc/nginx/sites-enabled/default
+
+  Create Nginx config file for our app.
+
+    sudo nano /etc/nginx/sites-available/app_name.conf
+
+  Sample config file.
+```
+  server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+
+    # Using '_' as server_name matches any request, allowing access via your IP address
+    server_name _;
+
+    # Root directory pointing to your Laravel project's public folder
+    # Replace 'your-project-folder' with the actual folder name of your cloned git repository
+    root /home/laravel_demo/code/public;
+
+    index index.php index.html;
+
+    charset utf-8;
+
+    # Laravel's route handler
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+
+    # PHP-FPM configuration using PHP 8.3
+    location ~ \.php$ {
+        fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+        fastcgi_hide_header X-Powered-By;
+    }
+
+    # Deny access to hidden files (like .env or .git)
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}
+
+```
+Create a symlink from /etc/nginx/sites-available/ to /etc/nginx/sites-enabled/. This will enable your site configuration.
+
+    sudo ln -s /etc/nginx/sites-available/app_name.conf /etc/nginx/sites-enabled/
+
+  Test your nginx configuration
+  
+    sudo nginx -t
+    
+  Reload nginx to apply the changes
+  
+    sudo service nginx reload
+        
+  ### 5. Fix Permissions
+  Context: We want to serve multiple website from one server.
+  If it shows File not found in above step or something similar, then first check the nginx error.log file for more information.
+
+    sudo cat /var/log/nginx/error.log
+
+If it says permission issue on the public directory or files. We are gonna add a new group(laravel_demo here) to the www-data.
+
+    sudo usermod -a -G laravel_demo www-data
+
+Restart the nginx
+
+    sudo service nginx reload
+
+Now if look the error again, it should fix the permission issue. After that if there is showing fastcgi error then check the php-fpm config file and check the user. If it is www-data then add the deploy user(here it is laravel_demo) and the www-data same group. If we serve only one website then you can change the owner of the file to the deploy user. But we are planning to serve multiple website from one server so we are not going to change the owner of the file. We will just add the deploy user and the www-data in the same group. For the php-fpm config file location check this.
+
+    sudo nano /etc/php/8.3/fpm/pool.d/www.conf
+
+change these places
+
+    [laravel_demo]          # Pool name (was [www] at line no 4) — good ✅
+    user = laravel_demo     # PHP-FPM worker runs as this user ✅
+    group = laravel_demo    # PHP-FPM worker runs as this group ✅
+    listen.owner = laravel_demo   # Socket file owned by this user ✅
+    listen.group = laravel_demo   # Socket file group ✅
+
+  Restart the php-fpm.
+
+    sudo systemctl restart php8.3-fpm
+    sudo service nginx reload
+
+  ## 4. Deploy Workers
+  Install Redis server
+
+    sudo apt install redis-server -y
+
+  To check the status. If it throws error then install the redis extension.
+
+    php -r "new Redis();"    
+    
+  Install supervisor
+
+    sudo apt install supervisor -y
+    
+  Create a conf file for supervisor. We need to create a conf file for supervisor to run the queue workers. 
+    
+    sudo nano /etc/supervisor/conf.d/laravel_demo_horizon.conf
+
+  Here is the file content:
+
+    [program:laravel_demo_horizon]
+    process_name=%(program_name)s_%(process_num)d
+    command=php /home/laravel_demo/code/artisan horizon
+    user=laravel_demo
+    numprocs=1
+    autostart=true
+    autorestart=true
+    redirect_stderr=true
+    stdout_logfile=/home/laravel_demo/code/horizon/logs/horizon.log
+    stderr_logfile=/home/laravel_demo/code/horizon/logs/horizon.err
+    stopwaitsecs=3600
+      
+  Create the log directory if it does not exist. run from <new-user>
+
+    mkdir -p /home/laravel_demo/code/horizon/logs
+
+  Or from ubuntu user
+
+    sudo mkdir -p /home/laravel_demo/code/horizon/logs
+
+    sudo chown laravel_demo:laravel_demo /home/laravel_demo/code/horizon/logs
+
+  Restart the supervisor after config changes
+
+    sudo service supervisor restart
+
+  Check the horizon process
+
+    sudo service supervisor status
+    
+Change .env to use redis as cache and queue driver.
+
+    SESSION_DRIVER=redis
+    CACHE_DRIVER=redis
+    QUEUE_CONNECTION=redis
+    CACHE_STORE=redis
+  
+These are redis port
+
+    REDIS_HOST=127.0.0.1
+    REDIS_PASSWORD=null
+    REDIS_PORT=6379
+    REDIS_CLIENT=phpredis
+
+After editing, clear Laravel's config cache:
+
+    php artisan config:clear
+    
+
+## 5. Deploy Schedulers
+
+### 1. To check if there is any cron entries for the <u>CURRENT USER</u> use - 
+
+    crontab -l
+    
+### 2. Configure Cron
+To create or edit the cron use - 
+
+    crontab -e
+
+If there is no entry then add the following entry - 
+
+    * * * * * cd /home/laravel_demo/code && php artisan schedule:run >> /home/laravel_demo/code/storage/logs/cron.log 2>&1
+
+### 3. Verify working it in horizon
+Check the /horizon if it is working correctly.
+
+### 4. Verify log file
+
+    nano /home/laravel_demo/code/storage/logs/cron.log
+
+### 5. To remove or disable the cron
+To remove you can delete the line or put a # sign before the line for temporary disabling it.
+
+## 6. Migrate from SQLite to MySQL
+
+### 1. Install MySQL Server
+
+    sudo apt install mysql-server -y
+    
+### 2. Create a MySQL database and user
+
+  Login in to mysql:
+
+    sudo mysql
+
+  Run the following commands:
+
+    ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY 'secret';
+    FLUSH PRIVILEGES;
+    EXIT;
+
+  Then immediately verify it works:
+
+    mysql -u root -p
+
+  If that login succeeds, **exit MySQL first** (`exit;`), then run this from the shell (not inside MySQL):
+
+    sudo mysql_secure_installation
+
+  follow the steps:
+  1. Change the root password - yes(if you want to change). then enter the new password, confirm it again and press enter.
+  2. Remove anonymous users? -> yes
+  3. Disallow root login remotely? -> yes
+  4. Remove test database and access to it? -> yes
+  5. Reload privilege tables now? -> yes
+
+If you need to create/update a user, here's the SQL:
+
+    CREATE USER 'laravel_demo'@'localhost' IDENTIFIED BY 'devops#Demo18';
+
+Grant all the privileges to the user
+
+    GRANT ALL PRIVILEGES ON laravel_demo.* TO 'laravel_demo'@'localhost';
+    FLUSH PRIVILEGES;
+    EXIT;
+
+Update the .env file with the new database credentials:
+
+    DB_CONNECTION=mysql
+    DB_HOST=[IP_ADDRESS]
+    DB_PORT=3306
+    DB_DATABASE=laravel_demo
+    DB_USERNAME=laravel_demo
+    DB_PASSWORD=[PASSWORD]  # If the password contains '#' or special characters then wrap the password in double quotes
+
+Clear the cache and run the migration
+
+    php artisan config:clear
+    php artisan cache:clear
+    php artisan route:clear
+    php artisan view:clear
+    
+    php artisan optimize:clear
+
+Run the migration
+
+    php artisan migrate
+
+Check the url for the application. It should work now. You can register a new user.
+Now check the database using MySQL client. You can access it using laravel_demo user as we created in step 2. If you have ubuntu user access then you can use it also.
+
+    sudo mysql -u laravel_demo -p
+
+Now we need to give access to laravel_demo user to access the database from their local machine. First we need to create ssh key for the laravel_demo user. We can do it using the following command - 
+
+    ssh-keygen -t ed25519 -C "deployments and ssh access" -f ~/Desktop/laravel_dmeo/key
+
+Then copy the public key 
+
+    cat ~/Desktop/laravel_dmeo/key.pub
+
+Copy the contains of the file and paste it to the authorized_keys file for the laravel_demo user. 
+
+    nano ~/.ssh/authorized_keys
+
+Change the permission of the file 
+
+    chmod 600 ~/.ssh/authorized_keys
+
+Now open another terminal (your local machine) and try to login as laravel_demo user. It should not ask for the password.
+
+    ssh -i ~/Desktop/laravel_demo/key laravel_demo@<server-ip>
+
+After login try to login to mysql database using the laravel_demo user.
+
+    mysql -u laravel_demo -p  
+
+Now you can configure local mysql client to access the remote database. Use the following details:
+
+    DB_HOST=127.0.0.1
+    DB_PORT=3306
+    DB_DATABASE=laravel_demo
+    DB_USERNAME=laravel_demo
+    DB_PASSWORD=[PASSWORD]
+
+    SSH HOST=[IP_ADDRESS]
+    SSH USER=laravel_demo
+    SSH PORT=22
+    SSH KEY=~/Desktop/laravel_dmeo/key  
+
+Connect the Database and check.
+
+## 7. Setup Domain name and TLS/SSL
+
+I have bought a domain from godaddy.
+- Select Route53 and choose "Create hosted zone". 
+- Enter the domain name and click on "Create hosted zone". 
+- Now copy the NS records under "Hosted zone details" and paste it to godaddy domains -> DNS Management -> Nameservers -> Change to custom nameservers
+
+- Now go to Route53 -> Hosted zone -> <domain-name> -> "Create record"
+
+- Give a record name e.g. www or app or laraveldemo
+- Record Type - CNAME
+- value - copy Public IPv4 DNS name of the ec2 server and paste it here. Because we don't have fixed ip address for the ec2 instance so in the mean we will use DNS name instead of IP address.
+- click on Create Record
+- Check the status
+
+Now go to the browser and type the subdomain.domain(e.g. laraveldemo.dudameweb.com). It should open the laravel application. Remember it will only be http. It may take hours before the changes propagate through the DNS system.
+
+### Make it secure with TLS/SSL
+Login to ec2 instance and run the following command - 
+
+    sudo apt install certbot python3-certbot-nginx -y
+
+Now go to nginx configration file - 
+
+    sudo nano /etc/nginx/sites-available/laravel-demo.conf
+
+
+Replace the underscore in the server_name with laraveldemo.amitdass.website
+
+anytime we change the nginx config, we should check the syntax of the config file using the following command -
+
+    sudo nginx -t
+    
+Then reload the nginx service to apply the changes
+
+    sudo systemctl reload nginx
+    
+As cert will change the config file, we should backup the file first.
+
+    sudo cp /etc/nginx/sites-available/laravel-demo.conf /etc/nginx/sites-available/laravel-demo.conf.bak
+
+Now run the certbot command to get the certificate.
+
+    sudo certbot --nginx
+
+Follow the instruction and provide the required details. For example, 
+  - provide email address, 
+  - agree to the terms of service, 
+  - select no for sharing email address, 
+  - choose names of the server that you want to secure, e.g., laraveldemo.amitdass.website
+  - put 1 and enter
+
+Now it will create a redirect from HTTP to HTTPS and will enable the auto renewal of the certificate.
+
+    sudo systemctl status certbot.timer
+
+Dry run for testing purposes
+
+    sudo certbot renew --dry-run
+
+
+## 8. Clean Up / Delete All Resources
+
+Follow this order to avoid dependency errors when deleting.
+
+### Step 1 — Terminate EC2 Instance
+- Go to **EC2 → Instances**
+- Select your instance → **Instance State → Terminate Instance**
+- Wait until status shows **"terminated"** before proceeding
+
+> The root EBS volume (8GB) is automatically deleted when the instance is terminated.
+
+### Step 2 — Delete Route 53 Hosted Zone
+> ⚠️ Costs **$0.50/month** even when idle — always delete after practice.
+
+- Go to **Route 53 → Hosted Zones** → click your hosted zone
+- Select all records **except NS and SOA** → Delete them
+- Go back to the hosted zone list → Select the zone → **Delete**
+
+### Step 3 — Delete the VPC
+- Go to **VPC → Your VPCs**
+- Select the project VPC (not the Default VPC — leave that one)
+- Click **Actions → Delete VPC**
+- AWS will auto-delete associated resources (subnets, route tables, internet gateway, security group)
+
+### Step 4 — Delete the Key Pair (Optional)
+- Go to **EC2 → Key Pairs** → Select your key → **Actions → Delete**
+- Also delete the `.pem` file from your local machine
+
+### Step 5 — Final Verification Checklist
+- [ ] EC2 → Instances: terminated or empty
+- [ ] EC2 → Volumes: no volumes in "available" state
+- [ ] EC2 → Elastic IPs: none allocated
+- [ ] Route 53 → Hosted Zones: deleted
+- [ ] VPC → Your VPCs: only the Default VPC remains (Default: Yes)
+- [ ] Billing → Bills: confirm no unexpected active charges
+
+> **Note:** The unnamed VPC in your list is likely the AWS **Default VPC** (Default: Yes).
+> It is created automatically by AWS in every region and costs nothing. Do **not** delete it.
+
+
+This is the end.
